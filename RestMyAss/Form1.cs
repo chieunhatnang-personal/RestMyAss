@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -26,19 +27,19 @@ namespace RestMyAss
         private bool _isExiting;
         private string _editingTaskId;
         private bool _isGridRefreshing;
+        private bool _isLoadingEditor;
 
         public frm_Setting()
         {
             InitializeComponent();
 
-            System.Drawing.Icon appIcon = System.Drawing.Icon.ExtractAssociatedIcon(Application.ExecutablePath);
+            Icon appIcon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
             if (appIcon != null)
             {
                 Icon = appIcon;
             }
 
-            _clockTimer = new Timer();
-            _clockTimer.Interval = 1000;
+            _clockTimer = new Timer { Interval = 1000 };
             _clockTimer.Tick += ClockTimer_Tick;
 
             _trayMenu = new ContextMenuStrip();
@@ -53,14 +54,17 @@ namespace RestMyAss
             _trayMenu.Items.Add(_mnuSettings);
             _trayMenu.Items.Add(_mnuQuit);
 
-            _trayIcon = new NotifyIcon();
-            _trayIcon.Text = "RestMyAss";
-            _trayIcon.Icon = appIcon ?? System.Drawing.SystemIcons.Information;
-            _trayIcon.ContextMenuStrip = _trayMenu;
-            _trayIcon.Visible = true;
+            _trayIcon = new NotifyIcon
+            {
+                Text = "RestMyAss",
+                Icon = appIcon ?? SystemIcons.Information,
+                ContextMenuStrip = _trayMenu,
+                Visible = true
+            };
             _trayIcon.DoubleClick += TrayIcon_DoubleClick;
 
             ConfigureReminderGrid();
+            WireEditorEvents();
             ExitEditMode();
         }
 
@@ -73,6 +77,7 @@ namespace RestMyAss
             chk_StartWithWindows.Checked = _state.StartWithWindows;
             RefreshReminderGrid();
             SelectFirstRowIfExists();
+            UpdateNextTaskMenuText();
 
             _clockTimer.Start();
         }
@@ -91,6 +96,27 @@ namespace RestMyAss
                 e.Cancel = true;
                 HideToTray();
             }
+        }
+
+        private void WireEditorEvents()
+        {
+            txtTitle.TextChanged += EditorFieldChanged;
+            txtMessage.TextChanged += EditorFieldChanged;
+            nudMinutes.ValueChanged += EditorFieldChanged;
+            chkMathChallenge.CheckedChanged += EditorFieldChanged;
+            dtpScheduledTime.ValueChanged += EditorFieldChanged;
+        }
+
+        private void EditorFieldChanged(object sender, EventArgs e)
+        {
+            if (_isLoadingEditor || _isGridRefreshing)
+            {
+                return;
+            }
+
+            PersistEditorToCurrentTask();
+            UpdateSelectedRowFromEditor();
+            UpdateNextTaskMenuText();
         }
 
         private void btnAddReminder_Click(object sender, EventArgs e)
@@ -144,6 +170,44 @@ namespace RestMyAss
             SelectFirstRowIfExists();
         }
 
+        private void btnMoveUp_Click(object sender, EventArgs e)
+        {
+            MoveSelectedTask(-1);
+        }
+
+        private void btnMoveDown_Click(object sender, EventArgs e)
+        {
+            MoveSelectedTask(1);
+        }
+
+        private void MoveSelectedTask(int direction)
+        {
+            ReminderTask selectedTask = GetSelectedTask();
+            if (selectedTask == null)
+            {
+                return;
+            }
+
+            int index = _state.Tasks.FindIndex(t => t.Id == selectedTask.Id);
+            if (index < 0)
+            {
+                return;
+            }
+
+            int newIndex = index + direction;
+            if (newIndex < 0 || newIndex >= _state.Tasks.Count)
+            {
+                return;
+            }
+
+            ReminderTask temp = _state.Tasks[index];
+            _state.Tasks[index] = _state.Tasks[newIndex];
+            _state.Tasks[newIndex] = temp;
+
+            RefreshReminderGrid();
+            SelectTaskById(selectedTask.Id);
+        }
+
         private void btnCancelEdit_Click(object sender, EventArgs e)
         {
             ExitEditMode();
@@ -180,6 +244,14 @@ namespace RestMyAss
         private void chkScheduled_CheckedChanged(object sender, EventArgs e)
         {
             dtpScheduledTime.Enabled = chkScheduled.Checked;
+            if (_isLoadingEditor)
+            {
+                return;
+            }
+
+            PersistEditorToCurrentTask();
+            UpdateSelectedRowFromEditor();
+            UpdateNextTaskMenuText();
         }
 
         private void ClockTimer_Tick(object sender, EventArgs e)
@@ -192,10 +264,7 @@ namespace RestMyAss
         private void HandleDueReminders()
         {
             DateTime now = DateTime.UtcNow;
-            var dueTasks = _state.Tasks
-                .Where(t => IsTaskComplete(t) && t.NextTriggerUtc <= now)
-                .ToList();
-
+            var dueTasks = _state.Tasks.Where(t => IsTaskComplete(t) && t.NextTriggerUtc <= now).ToList();
             if (dueTasks.Count == 0)
             {
                 return;
@@ -217,13 +286,11 @@ namespace RestMyAss
             }
             _clockTimer.Start();
 
-            RefreshReminderGrid();
-            RestoreSelectionIfPossible();
             UpdateRemainingCellsOnly();
             SaveAll(strictValidation: false, showValidationError: false);
         }
 
-                private void ConfigureReminderGrid()
+        private void ConfigureReminderGrid()
         {
             dgvReminders.AutoGenerateColumns = false;
             dgvReminders.AllowUserToAddRows = false;
@@ -235,14 +302,18 @@ namespace RestMyAss
             dgvReminders.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
 
             dgvReminders.Columns.Clear();
-            dgvReminders.Columns.Add(new DataGridViewTextBoxColumn
+            DataGridViewTextBoxColumn orderCol = new DataGridViewTextBoxColumn
             {
                 HeaderText = "#",
                 ReadOnly = true,
                 Width = 36,
                 MinimumWidth = 36,
                 AutoSizeMode = DataGridViewAutoSizeColumnMode.None
-            });
+            };
+            orderCol.DefaultCellStyle.ForeColor = Color.Red;
+            orderCol.DefaultCellStyle.Font = new Font(dgvReminders.Font, FontStyle.Bold);
+            dgvReminders.Columns.Add(orderCol);
+
             dgvReminders.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Title", ReadOnly = true, FillWeight = 20F, MinimumWidth = 120 });
             dgvReminders.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Message", ReadOnly = true, FillWeight = 33F, MinimumWidth = 180 });
             dgvReminders.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Every (min)", ReadOnly = true, FillWeight = 11F, MinimumWidth = 75 });
@@ -250,6 +321,52 @@ namespace RestMyAss
             dgvReminders.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Scheduled", ReadOnly = true, FillWeight = 10F, MinimumWidth = 75 });
             dgvReminders.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "At", ReadOnly = true, FillWeight = 8F, MinimumWidth = 65 });
             dgvReminders.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "Remaining", ReadOnly = true, FillWeight = 11F, MinimumWidth = 85 });
+        }
+
+        private static string Mark(bool value)
+        {
+            return value ? "\u2713" : "\u2717";
+        }
+
+        private static Color MarkColor(bool value)
+        {
+            return value ? Color.Green : Color.Red;
+        }
+
+        private static string BuildScheduleText(ReminderTask task)
+        {
+            return task.IsScheduled
+                ? new DateTime(2000, 1, 1, task.ScheduledHour, task.ScheduledMinute, 0).ToString("hh:mm tt")
+                : "-";
+        }
+
+        private static string BuildRemainingText(ReminderTask task)
+        {
+            TimeSpan remaining = task.NextTriggerUtc - DateTime.UtcNow;
+            if (remaining < TimeSpan.Zero)
+            {
+                remaining = TimeSpan.Zero;
+            }
+
+            return remaining.ToString(@"hh\:mm\:ss");
+        }
+
+        private void FillRow(DataGridViewRow row, ReminderTask task, int order)
+        {
+            row.Cells[0].Value = order;
+            row.Cells[1].Value = task.Title;
+            row.Cells[2].Value = task.Message;
+            row.Cells[3].Value = task.IntervalMinutes;
+            row.Cells[4].Value = Mark(task.IsMathChallenge);
+            row.Cells[5].Value = Mark(task.IsScheduled);
+            row.Cells[6].Value = BuildScheduleText(task);
+            row.Cells[7].Value = BuildRemainingText(task);
+
+            row.Cells[4].Style.ForeColor = MarkColor(task.IsMathChallenge);
+            row.Cells[5].Style.ForeColor = MarkColor(task.IsScheduled);
+            row.Cells[4].Style.Font = new Font(dgvReminders.Font, FontStyle.Bold);
+            row.Cells[5].Style.Font = new Font(dgvReminders.Font, FontStyle.Bold);
+            row.Tag = task;
         }
 
         private void RefreshReminderGrid()
@@ -262,31 +379,11 @@ namespace RestMyAss
             _isGridRefreshing = true;
             dgvReminders.Rows.Clear();
 
-            DateTime now = DateTime.UtcNow;
             int orderNumber = 1;
-            foreach (ReminderTask task in _state.Tasks.OrderBy(t => t.NextTriggerUtc))
+            foreach (ReminderTask task in _state.Tasks)
             {
-                TimeSpan remaining = task.NextTriggerUtc - now;
-                if (remaining < TimeSpan.Zero)
-                {
-                    remaining = TimeSpan.Zero;
-                }
-
-                string scheduleAt = task.IsScheduled
-                    ? new DateTime(2000, 1, 1, task.ScheduledHour, task.ScheduledMinute, 0).ToString("hh:mm tt")
-                    : "-";
-
-                int rowIndex = dgvReminders.Rows.Add(
-                    orderNumber,
-                    task.Title,
-                    task.Message,
-                    task.IntervalMinutes,
-                    task.IsMathChallenge ? "Yes" : "No",
-                    task.IsScheduled ? "Yes" : "No",
-                    scheduleAt,
-                    remaining.ToString(@"hh\:mm\:ss"));
-
-                dgvReminders.Rows[rowIndex].Tag = task;
+                int rowIndex = dgvReminders.Rows.Add();
+                FillRow(dgvReminders.Rows[rowIndex], task, orderNumber);
                 orderNumber++;
             }
 
@@ -300,7 +397,6 @@ namespace RestMyAss
                 return;
             }
 
-            DateTime now = DateTime.UtcNow;
             foreach (DataGridViewRow row in dgvReminders.Rows)
             {
                 ReminderTask task = row.Tag as ReminderTask;
@@ -309,14 +405,26 @@ namespace RestMyAss
                     continue;
                 }
 
-                TimeSpan remaining = task.NextTriggerUtc - now;
-                if (remaining < TimeSpan.Zero)
-                {
-                    remaining = TimeSpan.Zero;
-                }
-
-                row.Cells[7].Value = remaining.ToString(@"hh\:mm\:ss");
+                row.Cells[7].Value = BuildRemainingText(task);
             }
+        }
+
+        private void UpdateSelectedRowFromEditor()
+        {
+            ReminderTask selectedTask = GetSelectedTask();
+            if (selectedTask == null)
+            {
+                return;
+            }
+
+            DataGridViewRow row = dgvReminders.SelectedRows.Count > 0 ? dgvReminders.SelectedRows[0] : null;
+            if (row == null)
+            {
+                return;
+            }
+
+            int order = row.Index + 1;
+            FillRow(row, selectedTask, order);
         }
 
         private void dgvReminders_SelectionChanged(object sender, EventArgs e)
@@ -350,6 +458,7 @@ namespace RestMyAss
 
         private void LoadTaskToEditor(ReminderTask task)
         {
+            _isLoadingEditor = true;
             _editingTaskId = task.Id;
             txtTitle.Text = task.Title;
             txtMessage.Text = task.Message;
@@ -371,11 +480,12 @@ namespace RestMyAss
             dtpScheduledTime.Enabled = task.IsScheduled;
 
             btnCancelEdit.Enabled = true;
+            _isLoadingEditor = false;
         }
 
         private void PersistEditorToCurrentTask()
         {
-            if (string.IsNullOrWhiteSpace(_editingTaskId))
+            if (_isLoadingEditor || string.IsNullOrWhiteSpace(_editingTaskId))
             {
                 return;
             }
@@ -400,9 +510,9 @@ namespace RestMyAss
             task.ScheduledMinute = dtpScheduledTime.Value.Minute;
 
             bool scheduleChanged = oldInterval != task.IntervalMinutes ||
-                                  oldScheduled != task.IsScheduled ||
-                                  oldHour != task.ScheduledHour ||
-                                  oldMinute != task.ScheduledMinute;
+                                   oldScheduled != task.IsScheduled ||
+                                   oldHour != task.ScheduledHour ||
+                                   oldMinute != task.ScheduledMinute;
 
             if (scheduleChanged)
             {
@@ -412,6 +522,7 @@ namespace RestMyAss
 
         private void ExitEditMode()
         {
+            _isLoadingEditor = true;
             _editingTaskId = null;
             txtTitle.Clear();
             txtMessage.Clear();
@@ -421,6 +532,7 @@ namespace RestMyAss
             dtpScheduledTime.Value = DateTime.Now;
             dtpScheduledTime.Enabled = false;
             btnCancelEdit.Enabled = false;
+            _isLoadingEditor = false;
         }
 
         private void NormalizeLoadedTasks()
@@ -510,8 +622,6 @@ namespace RestMyAss
             }
 
             PersistEditorToCurrentTask();
-            RefreshReminderGrid();
-            RestoreSelectionIfPossible();
 
             if (strictValidation)
             {
@@ -546,19 +656,10 @@ namespace RestMyAss
                 {
                     row.Selected = true;
                     dgvReminders.CurrentCell = row.Cells[0];
+                    LoadTaskToEditor(task);
                     return;
                 }
             }
-        }
-
-        private void RestoreSelectionIfPossible()
-        {
-            if (string.IsNullOrWhiteSpace(_editingTaskId))
-            {
-                return;
-            }
-
-            SelectTaskById(_editingTaskId);
         }
 
         private void SelectFirstRowIfExists()
@@ -602,7 +703,7 @@ namespace RestMyAss
             ShowSettingsWindow();
         }
 
-                private void TrayMenu_Opening(object sender, System.ComponentModel.CancelEventArgs e)
+        private void TrayMenu_Opening(object sender, System.ComponentModel.CancelEventArgs e)
         {
             UpdateNextTaskMenuText();
         }
@@ -733,11 +834,6 @@ namespace RestMyAss
         }
     }
 }
-
-
-
-
-
 
 
 

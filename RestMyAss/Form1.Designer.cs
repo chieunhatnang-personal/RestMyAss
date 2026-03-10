@@ -46,6 +46,8 @@ namespace RestMyAss
             this.btnSave = new System.Windows.Forms.Button();
             this.btnDeleteSelected = new System.Windows.Forms.Button();
             this.btnQuit = new System.Windows.Forms.Button();
+            this.btnMoveUp = new System.Windows.Forms.Button();
+            this.btnMoveDown = new System.Windows.Forms.Button();
             this.grb_ReminderList.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)(this.dgvReminders)).BeginInit();
             this.grb_AddReminder.SuspendLayout();
@@ -125,7 +127,6 @@ namespace RestMyAss
             this.chkMathChallenge.TabIndex = 9;
             this.chkMathChallenge.Text = "Math challenge";
             this.chkMathChallenge.UseVisualStyleBackColor = true;
-
             // 
             // btnCancelEdit
             // 
@@ -234,7 +235,7 @@ namespace RestMyAss
             // 
             // btnDeleteSelected
             // 
-            this.btnDeleteSelected.Location = new System.Drawing.Point(480, 512);
+            this.btnDeleteSelected.Location = new System.Drawing.Point(360, 512);
             this.btnDeleteSelected.Name = "btnDeleteSelected";
             this.btnDeleteSelected.Size = new System.Drawing.Size(114, 27);
             this.btnDeleteSelected.TabIndex = 3;
@@ -252,11 +253,33 @@ namespace RestMyAss
             this.btnQuit.UseVisualStyleBackColor = true;
             this.btnQuit.Click += new System.EventHandler(this.btnQuit_Click);
             // 
+            // btnMoveUp
+            // 
+            this.btnMoveUp.Location = new System.Drawing.Point(480, 512);
+            this.btnMoveUp.Name = "btnMoveUp";
+            this.btnMoveUp.Size = new System.Drawing.Size(54, 27);
+            this.btnMoveUp.TabIndex = 6;
+            this.btnMoveUp.Text = "Up";
+            this.btnMoveUp.UseVisualStyleBackColor = true;
+            this.btnMoveUp.Click += new System.EventHandler(this.btnMoveUp_Click);
+            // 
+            // btnMoveDown
+            // 
+            this.btnMoveDown.Location = new System.Drawing.Point(540, 512);
+            this.btnMoveDown.Name = "btnMoveDown";
+            this.btnMoveDown.Size = new System.Drawing.Size(54, 27);
+            this.btnMoveDown.TabIndex = 7;
+            this.btnMoveDown.Text = "Down";
+            this.btnMoveDown.UseVisualStyleBackColor = true;
+            this.btnMoveDown.Click += new System.EventHandler(this.btnMoveDown_Click);
+            // 
             // frm_Setting
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(8F, 16F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.ClientSize = new System.Drawing.Size(898, 552);
+            this.Controls.Add(this.btnMoveDown);
+            this.Controls.Add(this.btnMoveUp);
             this.Controls.Add(this.btnQuit);
             this.Controls.Add(this.btnDeleteSelected);
             this.Controls.Add(this.btnSave);
@@ -300,8 +323,7 @@ namespace RestMyAss
         private System.Windows.Forms.DateTimePicker dtpScheduledTime;
         private System.Windows.Forms.CheckBox chkScheduled;
         private System.Windows.Forms.CheckBox chkMathChallenge;
+        private System.Windows.Forms.Button btnMoveUp;
+        private System.Windows.Forms.Button btnMoveDown;
     }
 }
-
-
-
